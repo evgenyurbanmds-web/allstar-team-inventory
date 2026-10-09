@@ -300,6 +300,7 @@ function showReports(){
  $('runReport').click();
 }
 render=function(tab){
+ setupReportsTab();
  if(tab==='reports'&&snapshot?.role!=='manager'){showReports();return}
  $('tabReports')?.classList.remove('active');
  renderBeforeExtras(tab);
