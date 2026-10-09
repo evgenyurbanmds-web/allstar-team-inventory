@@ -359,4 +359,87 @@ render=function(tab){
  const oldAdd=addLine; // additional row changes always require new review
  const observer=new MutationObserver(()=>{save.dataset.confirm='';save.textContent='Проверить партию';review.classList.add('hidden')});observer.observe(body,{childList:true});
 };
+</script>
+<style>
+.lot-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}.lot-grid label{font-size:13px;color:#52677b}.lot-grid input{margin-top:5px}.lot-line{display:grid;grid-template-columns:minmax(150px,2fr) 80px 115px 90px 42px;gap:7px;align-items:center;margin:8px 0}.lot-line input,.lot-line select{width:100%;min-width:0;padding:9px}.lot-line button{padding:10px;margin:0}.lot-table{width:100%;border-collapse:collapse;margin:12px 0}.lot-table td,.lot-table th{padding:9px;border-bottom:1px solid #e8eef5;text-align:right}.lot-table td:first-child,.lot-table th:first-child{text-align:left}.lot-scroll{overflow-x:auto}@media(max-width:650px){.lot-line{grid-template-columns:minmax(110px,2fr) 58px 85px 75px 36px;gap:4px}.lot-line input,.lot-line select{padding:6px;font-size:12px}}
+</style>
+<script>
+const renderBeforeLot=render;
+render=function(tab){
+ renderBeforeLot(tab);
+ if(!snapshot||snapshot.role==='manager'||tab!=='receipts')return;
+ const panel=document.createElement('section');panel.className='tools';
+ addElement(panel,'h2','B-Stock / лот — распределение себестоимости');
+ addElement(panel,'p','Стоимость закупки и сборы распределяются по Retail. Доставка учитывается отдельно. Ниже можно сохранить только черновик поступления после проверки.','muted');
+ const fields=document.createElement('div');fields.className='lot-grid';
+ const numeric=(title,initial='0')=>{const label=document.createElement('label');label.textContent=title;const input=document.createElement('input');input.type='number';input.min='0';input.step='0.01';input.value=initial;label.append(input);fields.append(label);return input};
+ const bid=numeric('Winning bid, </html>);const fee=numeric('B-Stock fee, </html>);const extra=numeric('Другие реальные сборы, </html>);const freight=numeric('Доставка всей партии, </html>);
+ const dateLabel=document.createElement('label');dateLabel.textContent='Дата получения';const date=document.createElement('input');date.type='date';const now=new Date();date.value=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');dateLabel.append(date);fields.append(dateLabel);
+ const lotLabel=document.createElement('label');lotLabel.textContent='Номер лота';const lot=document.createElement('input');lot.placeholder='Например, ATL-...';lotLabel.append(lot);fields.append(lotLabel);
+ panel.append(fields);
+ addElement(panel,'h3','Состав лота (Retail за штуку)');
+ const header=document.createElement('div');header.className='lot-line muted';for(const label of ['Модель','Шт.','Retail </html>,'Дост. $/шт.',''])addElement(header,'small',label);panel.append(header);
+ const rows=document.createElement('div');panel.append(rows);
+ const add=document.createElement('button');add.className='secondary';add.textContent='+ Добавить модель';panel.append(add);
+ const output=document.createElement('div');panel.append(output);
+ const action=document.createElement('button');action.textContent='Рассчитать распределение';panel.append(action);
+ const msg=addElement(panel,'p','','error');
+ $('content').append(panel);
+ const items=(snapshot.products||[]).map(p=>({id:p.id,name:p.name}));
+ let plan=null;
+ const reset=()=>{plan=null;action.textContent='Рассчитать распределение';msg.textContent='';output.replaceChildren()};
+ const makeInput=(value,step='0.01')=>{const input=document.createElement('input');input.type='number';input.min='0';input.step=step;input.value=value;input.addEventListener('input',reset);return input};
+ function addRow(){
+  if(rows.children.length>=100)return;
+  const row=document.createElement('div');row.className='lot-line';
+  const select=document.createElement('select');for(const p of items){const option=document.createElement('option');option.value=p.id;option.textContent=p.name;select.append(option)}select.addEventListener('change',reset);
+  const qty=makeInput('1','1');qty.min='1';
+  const retail=makeInput('');retail.placeholder='0.00';
+  const ship=makeInput('0');
+  const remove=document.createElement('button');remove.className='secondary';remove.textContent='×';remove.onclick=()=>{row.remove();reset()};
+  row.append(select,qty,retail,ship,remove);rows.append(row);reset();
+ }
+ add.onclick=addRow;addRow();
+ for(const field of [bid,fee,extra,freight,date,lot])field.addEventListener('input',reset);
+ const money=v=>Math.round((v+Number.EPSILON)*100);
+ const dollars=c=>c/100;
+ const allocate=(total,weights)=>{const sum=weights.reduce((a,b)=>a+b,0);if(sum<=0)throw Error('Суммарный Retail должен быть больше нуля');const raw=weights.map(w=>total*w/sum);const base=raw.map(Math.floor);let remainder=total-base.reduce((a,b)=>a+b,0);const order=raw.map((v,i)=>({i,f:v-base[i]})).sort((a,b)=>b.f-a.f||a.i-b.i);for(let i=0;i<remainder;i++)base[order[i].i]++;return base};
+ function compute(){
+  const list=[...rows.children].map(row=>{const [select,qty,retail,ship]=row.children;return {product_id:select.value,name:items.find(p=>p.id===select.value)?.name||'Товар',quantity:Number(qty.value),retail:Number(retail.value),ship:Number(ship.value),rawRetail:retail.value}});
+  if(!list.length||list.some(l=>!l.product_id||!Number.isInteger(l.quantity)||l.quantity<1||l.rawRetail===''||!Number.isFinite(l.retail)||l.retail<0||!Number.isFinite(l.ship)||l.ship<0))throw Error('Укажи модель, количество и Retail каждой позиции');
+  if(new Set(list.map(l=>l.product_id)).size!==list.length)throw Error('Одинаковые модели объедини в одну строку');
+  const vals=[bid,fee,extra,freight].map(x=>Number(x.value));
+  if([bid,fee,extra,freight].some(x=>x.value==='')||vals.some(x=>!Number.isFinite(x)||x<0))throw Error('Проверь стоимость лота, сборы и доставку');
+  const [bidC,feeC,extraC,freightC]=vals.map(money);
+  const total=bidC+feeC+extraC;
+  const weights=list.map(l=>l.retail*l.quantity);
+  const costs=allocate(total,weights);
+  const shippingByLine=allocate(freightC,weights);
+  // Persist unit costs at 6 decimals; per-line cents remain the authoritative preview.
+  const data=list.map((l,i)=>({...l,purchase_unit_cost:Number((dollars(costs[i])/l.quantity).toFixed(6)),inbound_freight_unit_cost:Number((dollars(shippingByLine[i])/l.quantity+l.ship).toFixed(6)),retail_unit_price:l.retail,allocatedPurchase:costs[i],allocatedFreight:shippingByLine[i]}));
+  return {data,total,freightC,weights,extraFreight:list.reduce((n,l)=>n+money(l.ship)*l.quantity,0)};
+ }
+ action.onclick=async()=>{
+  msg.textContent='';
+  if(!plan){
+   try{plan=compute();if(!date.value)throw Error('Укажи дату получения');
+    const grid=document.createElement('div');grid.className='lot-scroll';const table=document.createElement('table');table.className='lot-table';
+    const head=document.createElement('tr');for(const t of ['Модель','Шт.','Retail всего','Закупка распределена','Доставка распределена','Себест. / шт.'])addElement(head,'th',t);table.append(head);
+    for(const l of plan.data){const tr=document.createElement('tr');for(const t of [l.name,String(l.quantity),usd(l.retail*l.quantity),usd(dollars(l.allocatedPurchase)),usd(dollars(l.allocatedFreight)+l.ship*l.quantity),usd(l.purchase_unit_cost+l.inbound_freight_unit_cost)])addElement(tr,'td',t);table.append(tr)}
+    const foot=document.createElement('tr');for(const t of ['ИТОГО',String(plan.data.reduce((n,l)=>n+l.quantity,0)),usd(plan.weights.reduce((a,b)=>a+b,0)),usd(dollars(plan.total)),usd(dollars(plan.freightC+plan.extraFreight)),'—'])addElement(foot,'th',t);table.append(foot);
+    grid.append(table);output.replaceChildren(grid);
+    addElement(output,'p','Проверь суммы. Распределение округлено до центов по строкам, стоимость за штуку хранится с точностью до 6 знаков. При проведении возможна незначительная разница округления.','muted');
+    addElement(output,'p','Сохранение создаст только ЧЕРНОВИК. Не нажимай «Оприходовать», пока товар физически не получен.','muted');
+    action.textContent='Сохранить черновик лота';
+   }catch(e){plan=null;msg.textContent=e.message}
+   return;
+  }
+  action.disabled=true;
+  try{
+   const lines=plan.data.map(l=>({product_id:l.product_id,quantity:l.quantity,retail_unit_price:l.retail_unit_price,purchase_unit_cost:l.purchase_unit_cost,inbound_freight_unit_cost:l.inbound_freight_unit_cost}));
+   await rpc('inventory_owner_create_draft',{p_kind:'receipt',p_lines:lines,p_date:date.value,p_notes:'B-Stock lot '+(lot.value.trim()||'(без номера)')+'; bid '+bid.value+'; B-Stock fee '+fee.value+'; extra fees '+extra.value+'; shipping '+freight.value+'; allocation by retail',p_request_key:crypto.randomUUID()});
+   await refreshTab('receipts');$('status').textContent='Черновик лота создан. Остатки не изменились.';
+  }catch(e){msg.textContent=e.message;action.disabled=false}
+ };
+};
 </script></body></html>
