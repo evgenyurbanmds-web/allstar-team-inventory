@@ -67,6 +67,8 @@ const previousRender=render;
 const usd=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(n||0));
 const productById=id=>(snapshot?.products||[]).find(p=>p.id===id);
 const balanceById=id=>(snapshot?.balances||[]).find(b=>b.product_id===id);
+function retailById(id){const lines=(snapshot?.receipt_lines||[]).filter(l=>l.product_id===id&&l.retail_unit_price!=null&&(snapshot?.receipts||[]).some(r=>r.id===l.receipt_id&&r.status==='posted'));return lines.length?Number(lines[lines.length-1].retail_unit_price):null}
+function salePriceInfo(id,qty,amountText){const b=balanceById(id);const purchase=Number(b?.avg_purchase_cost||0),freight=Number(b?.avg_freight_cost||0),cost=purchase+freight,retail=retailById(id);const quantity=Number(qty)||0;const lines=['На складе: '+(b?.on_hand||0)+' шт.','Закупка: '+usd(purchase)+'/шт. · Доставка: '+usd(freight)+'/шт.','Себестоимость: '+usd(cost)+'/шт. · '+usd(cost*quantity)+' за '+quantity+' шт.','Original Retail: '+(retail===null?'нет данных':usd(retail)+'/шт.')];if(amountText!==''){const amount=Number(amountText);if(Number.isFinite(amount))lines.push('Ожидаемая валовая прибыль: '+usd(amount-cost*quantity))}return lines.join(' | ')}
 const lineList=(kind,id)=>(snapshot?.[kind==='receipt'?'receipt_lines':'sale_lines']||[]).filter(l=>l[kind+'_id']===id);
 function addElement(parent,tag,txt,cls){const el=document.createElement(tag);if(cls)el.className=cls;el.textContent=txt;parent.append(el);return el}
 async function refreshTab(tab){snapshot=await rpc('inventory_owner_snapshot');render(tab)}
@@ -134,8 +136,8 @@ render=function(tab){
   const choices=(snapshot.products||[]).map(p=>'<option value="'+p.id+'">'+escapeText(p.name)+'</option>').join('');
   area.innerHTML='<h2>Новая продажа — черновик</h2><p class="hint">Создание черновика не меняет остатки. Проведение требует отдельного подтверждения.</p><label>Товар</label><select id="saleProduct">'+choices+'</select><p class="hint" id="available"></p><label>Количество</label><input id="saleQty" type="number" min="1" step="1" value="1"><label>Сумма, полученная за все единицы ($)</label><input id="saleProceeds" type="number" min="0" step="0.01" placeholder="Общая сумма после комиссий"><label>Примечание</label><textarea id="saleNotes" placeholder="Площадка, заказ, покупатель"></textarea><button id="draftSale">Сохранить черновик продажи</button><p class="result" id="saleMsg"></p>';
   $('content').append(area);
-  const update=()=>{const b=balanceById($('saleProduct').value);$('available').textContent='Доступно на складе: '+(b?.on_hand||0)+' шт.'};
-  $('saleProduct').onchange=update;update();
+  const update=()=>{$('available').textContent=salePriceInfo($('saleProduct').value,$('saleQty').value,$('saleProceeds').value)};
+  $('saleProduct').onchange=update;$('saleQty').oninput=update;$('saleProceeds').oninput=update;update();
   $('draftSale').onclick=async()=>{
    const qty=Number($('saleQty').value),amount=Number($('saleProceeds').value),id=$('saleProduct').value;
    if(!id||!Number.isInteger(qty)||qty<1||$('saleProceeds').value===''||!Number.isFinite(amount)||amount<0){$('saleMsg').textContent='Проверь товар, количество и сумму';return}
@@ -171,7 +173,7 @@ render=function(tab){
  const opts=(snapshot.products||[]).map(p=>'<option value="'+p.id+'">'+escapeText(p.name)+'</option>').join('');
  form.innerHTML='<label>Товар</label><select id="managerProduct">'+opts+'</select><p class="hint" id="managerStock"></p><label>Количество</label><input id="managerQty" type="number" min="1" step="1" value="1"><label>Общая сумма продажи, $</label><input id="managerAmount" type="number" min="0" step="0.01" placeholder="После комиссий"><label>Примечание</label><textarea id="managerNotes"></textarea><button id="managerSave">Создать черновик</button><p id="managerMsg" class="result"></p>';
  el.append(form);
- const stock=()=>{$('managerStock').textContent='На складе: '+(balanceById($('managerProduct').value)?.on_hand||0)+' шт.'};$('managerProduct').onchange=stock;stock();
+ const stock=()=>{$('managerStock').textContent=salePriceInfo($('managerProduct').value,$('managerQty').value,$('managerAmount').value)};$('managerProduct').onchange=stock;$('managerQty').oninput=stock;$('managerAmount').oninput=stock;stock();
  $('managerSave').onclick=async()=>{
   const id=$('managerProduct').value,qty=Number($('managerQty').value),amount=Number($('managerAmount').value);
   if(!id||!Number.isInteger(qty)||qty<1||$('managerAmount').value===''||!Number.isFinite(amount)||amount<0||qty>Number(balanceById(id)?.on_hand||0)){$('managerMsg').textContent='Проверь количество, остаток и сумму';return}
