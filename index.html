@@ -110,13 +110,22 @@ render=function(tab){
  if(tab==='products'){
   const holder=document.createElement('div');holder.className='tools';
   addElement(holder,'h2','Остатки и себестоимость');
+  let totalUnits=0,totalValue=0;
   for(const p of snapshot.products||[]){
    const b=balanceById(p.id);
+   const units=Number(b?.on_hand||0);
+   const unitCost=Number(b?.avg_purchase_cost||0)+Number(b?.avg_freight_cost||0);
+   const value=units*unitCost;
+   totalUnits+=units;totalValue+=value;
    const row=document.createElement('div');row.className='row';
    addElement(row,'span',p.name);
-   addElement(row,'span',(b?.on_hand||0)+' шт. · '+usd(Number(b?.avg_purchase_cost||0)+Number(b?.avg_freight_cost||0))+'/шт.','stock');
+   addElement(row,'span',units+' шт. · '+usd(unitCost)+'/шт. · Всего: '+usd(value),'stock');
    holder.append(row);
   }
+  const totalRow=document.createElement('div');totalRow.className='row';
+  addElement(totalRow,'strong','ИТОГО · '+totalUnits+' шт.');
+  addElement(totalRow,'strong',usd(totalValue),'stock');
+  holder.append(totalRow);
   $('content').append(holder);
  }else if(tab==='receipts'){addDocs(tab)}
  else if(tab==='sales'){
