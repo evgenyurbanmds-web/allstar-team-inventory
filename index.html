@@ -314,6 +314,8 @@ render=function(tab){
 const renderBeforeBatch=render;
 render=function(tab){
  renderBeforeBatch(tab);
+ // Batch receipt form disabled by owner request.
+ return;
  if(!snapshot||snapshot.role==='manager'||tab!=='receipts')return;
  const host=document.createElement('section');host.className='tools';
  addElement(host,'h2','Партия товаров — несколько моделей');
