@@ -190,4 +190,108 @@ render=function(tab){
   el.append(row);
  }
 };
+</script>
+<style>
+.report-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:16px 0}
+.report-grid .metric{min-width:0}.report-grid .metric small{display:block;color:#617389}.report-grid .metric b{font-size:20px;margin-top:6px}
+.photo-grid{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.photo-grid img{width:76px;height:76px;object-fit:cover;border-radius:8px;background:#e9eef5}
+.photo-card{padding:14px 0;border-bottom:1px solid #e9eef5}.photo-card label{font-size:13px;color:#52677b;display:block;margin-top:8px}
+@media(max-width:600px){.docline{grid-template-columns:1fr}.row{flex-wrap:wrap}.panel{padding:16px}header{padding:18px}}
+</style>
+<script>
+const renderBeforeExtras=render;
+const originalLoadForExtras=load;
+load=async function(){await originalLoadForExtras();setupReportsTab()};
+function setupReportsTab(){
+ let btn=$('tabReports');
+ if(!btn){btn=document.createElement('button');btn.id='tabReports';btn.textContent='Отчёты';$('tabSales').after(btn);btn.onclick=()=>render('reports')}
+ btn.classList.toggle('hidden',!snapshot||snapshot.role==='manager');
+ $('tabReceipts').classList.toggle('hidden',!!snapshot&&snapshot.role==='manager');
+}
+const photoCache=new Map();
+async function photoUrl(path){
+ if(photoCache.has(path))return photoCache.get(path);
+ const response=await fetch(URL+'/storage/v1/object/authenticated/product-photos/'+path.split('/').map(encodeURIComponent).join('/'),{headers:{apikey:KEY,Authorization:'Bearer '+session.access_token}});
+ if(!response.ok)throw Error('Не удалось открыть фото');
+ const url=URL.createObjectURL(await response.blob());photoCache.set(path,url);return url;
+}
+function addPhotos(target,paths){
+ if(!paths?.length)return;
+ const gallery=document.createElement('div');gallery.className='photo-grid';target.append(gallery);
+ for(const path of paths.slice(0,8)){
+  const img=document.createElement('img');img.alt='Фото товара';img.loading='lazy';gallery.append(img);
+  photoUrl(path).then(url=>img.src=url).catch(()=>{img.alt='Фото недоступно'});
+ }
+}
+function showPhotoCatalog(){
+ const host=document.createElement('section');host.className='tools';
+ addElement(host,'h2','Фотографии товаров');
+ for(const p of snapshot.products||[]){
+  const card=document.createElement('div');card.className='photo-card';
+  addElement(card,'b',p.name);addPhotos(card,p.photo_paths);
+  if(snapshot.role!=='manager'){
+   const label=addElement(card,'label','Добавить фото (JPEG, PNG, WebP, до 10 МБ)');
+   const file=document.createElement('input');file.type='file';file.accept='image/jpeg,image/png,image/webp';label.append(file);
+   const msg=addElement(card,'p','','muted');
+   file.onchange=async()=>{
+    const chosen=file.files?.[0];if(!chosen)return;
+    if(!['image/jpeg','image/png','image/webp'].includes(chosen.type)||chosen.size>10*1024*1024){msg.textContent='Только JPEG, PNG или WebP до 10 МБ';return}
+    if((p.photo_paths||[]).length>=8){msg.textContent='Максимум 8 фото';return}
+    file.disabled=true;msg.textContent='Загрузка...';
+    const ext=chosen.type==='image/jpeg'?'jpg':chosen.type==='image/png'?'png':'webp';
+    const path=p.id+'/'+crypto.randomUUID()+'.'+ext;
+    try{
+     const r=await fetch(URL+'/storage/v1/object/product-photos/'+path,{method:'POST',headers:{apikey:KEY,Authorization:'Bearer '+session.access_token,'Content-Type':chosen.type,'x-upsert':'false'},body:chosen});
+     if(!r.ok){const j=await r.json().catch(()=>({}));throw Error(j.message||j.error||'Ошибка загрузки')}
+     await rpc('inventory_owner_set_photos',{p_product_id:p.id,p_photo_paths:[...(p.photo_paths||[]),path]});
+     await refreshTab('products');$('status').textContent='Фото товара сохранено';
+    }catch(e){msg.textContent='Ошибка: '+e.message;file.disabled=false}
+   };
+  }
+  host.append(card);
+ }
+ $('content').append(host);
+}
+function reportCard(host,label,value){
+ const el=document.createElement('div');el.className='metric';addElement(el,'small',label);addElement(el,'b',value);host.append(el);
+}
+function showReports(){
+ $('tabReports').classList.add('active');
+ for(const id of ['tabProducts','tabReceipts','tabSales'])$(id).classList.remove('active');
+ const root=$('content');root.replaceChildren();
+ addElement(root,'h2','Финансовые отчёты');
+ addElement(root,'p','Только проведённые операции. Черновики не учитываются.','muted');
+ const form=document.createElement('div');form.className='tools';
+ const now=new Date(),start=new Date(now.getFullYear(),now.getMonth(),1);
+ const dateString=d=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+ form.innerHTML='<label>С даты</label><input type="date" id="reportStart" value="'+dateString(start)+'"><label>По дату</label><input type="date" id="reportEnd" value="'+dateString(now)+'"><button id="runReport">Показать отчёт</button><p id="reportMsg" class="error"></p>';
+ root.append(form);
+ const result=document.createElement('div');root.append(result);
+ $('runReport').onclick=async()=>{
+  const begin=$('reportStart').value,end=$('reportEnd').value;
+  if(!begin||!end||begin>end){$('reportMsg').textContent='Неверный период';return}
+  $('reportMsg').textContent='';result.replaceChildren();$('runReport').disabled=true;
+  try{
+   const data=await rpc('inventory_owner_report',{p_start:begin,p_end:end});
+   const grid=document.createElement('div');grid.className='report-grid';result.append(grid);
+   reportCard(grid,'Выручка после возвратов',usd(data.net_revenue));
+   reportCard(grid,'Себестоимость продаж',usd(Number(data.cost_of_goods_sold||0)-Number(data.returned_cost_reversed||0)));
+   reportCard(grid,'Валовая прибыль от операций',usd(data.realized_profit));
+   reportCard(grid,'Закупки с доставкой',usd(data.purchase_and_freight_spend));
+   reportCard(grid,'Продано единиц',String(data.sold_units||0));
+   reportCard(grid,'Принято единиц',String(data.purchased_units||0));
+   reportCard(grid,'Возвраты покупателям',usd(data.refunds_paid));
+   reportCard(grid,'Списано единиц',String(data.writeoff_units||0));
+   addElement(result,'p','Валовая прибыль рассчитана по продажам, списаниям и возвратам. Не включает рекламу, налоги, аренду и другие операционные расходы.','muted');
+  }catch(e){$('reportMsg').textContent=e.message}
+  finally{$('runReport').disabled=false}
+ };
+ $('runReport').click();
+}
+render=function(tab){
+ if(tab==='reports'&&snapshot?.role!=='manager'){showReports();return}
+ $('tabReports')?.classList.remove('active');
+ renderBeforeExtras(tab);
+ if(snapshot&&tab==='products')showPhotoCatalog();
+};
 </script></body></html>
