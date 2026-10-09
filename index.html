@@ -328,8 +328,8 @@ render=function(tab){
   const cost=field('number','','0.01');cost.placeholder='0.00';td(cost);
   const freight=field('number','0','0.01');td(freight);
   const retail=field('number','','0.01');retail.placeholder='—';td(retail);
-  const remove=document.createElement('button');remove.className='secondary';remove.textContent='×';remove.title='Удалить строку';remove.onclick=()=>{row.remove();update();review.classList.add('hidden');save.textContent='Проверить партию'};td(remove);
-  for(const input of [select,qty,cost,freight,retail])input.addEventListener('input',()=>{update();review.classList.add('hidden');save.textContent='Проверить партию'});
+  const remove=document.createElement('button');remove.className='secondary';remove.textContent='×';remove.title='Удалить строку';remove.onclick=()=>{row.remove();update();review.classList.add('hidden');save.dataset.confirm='';save.textContent='Проверить партию'};td(remove);
+  for(const input of [select,qty,cost,freight,retail])input.addEventListener('input',()=>{update();review.classList.add('hidden');save.dataset.confirm='';save.textContent='Проверить партию'});
   body.append(row);update();
  }
  function lines(){
