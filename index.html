@@ -22,4 +22,42 @@ $('signup').onclick=async()=>{try{const s=await auth('signup',{email:$('email').
 $('signout').onclick=()=>{sessionStorage.removeItem('allstar_session');session=null;location.reload()};
 $('tabProducts').onclick=()=>render('products');$('tabReceipts').onclick=()=>render('receipts');$('tabSales').onclick=()=>render('sales');
 try{const s=JSON.parse(sessionStorage.getItem('allstar_session')||'null');if(s?.access_token)enter(s)}catch(e){sessionStorage.removeItem('allstar_session')}
+</script>
+<style>
+.tools{margin-top:18px;border-top:1px solid #e9eef5;padding-top:18px}.tools label{display:block;font-size:13px;color:#546779;margin-top:10px}.tools select,.tools textarea{width:100%;padding:12px;border:1px solid #d5dfeb;border-radius:8px;font:inherit;background:white}.tools textarea{min-height:65px}.tools .hint{font-size:13px;color:#65798c}.tools .result{margin-top:10px;font-size:14px}.stock{font-size:13px;color:#65798c}
+</style>
+<script>
+let activeTab='products';
+const oldRender=render;
+render=function(tab){
+ activeTab=tab;oldRender(tab);
+ const area=document.createElement('div');area.className='tools';
+ if(tab==='products'){
+ area.innerHTML='<h2>Добавить товар</h2><label>Название модели</label><input id="newName" placeholder="Например, HISENSE AX700"><label>Описание (необязательно)</label><textarea id="newDesc" placeholder="UPC, состояние, примечания"></textarea><button id="createProduct">Создать карточку</button><p class="hint">Если модель уже есть, база не создаст дубликат. Создание карточки не меняет остатки.</p><p class="result" id="formMsg"></p>';
+ $('content').append(area);
+ $('createProduct').onclick=async()=>{
+  const name=$('newName').value.trim();if(!name){$('formMsg').textContent='Укажи название';return}
+  const b=$('createProduct');b.disabled=true;
+  try{await rpc('inventory_owner_create_product',{p_name:name,p_description:$('newDesc').value.trim()||null});await load();$('status').textContent='Карточка сохранена в Supabase';}
+  catch(e){$('formMsg').textContent=e.message;b.disabled=false}
+ };
+ }else if(tab==='receipts'){
+ const options=(snapshot?.products||[]).map(p=>'<option value="'+p.id+'">'+escapeText(p.name)+'</option>').join('');
+ area.innerHTML='<h2>Черновик поступления</h2><p class="hint">Создаётся только черновик. Товары НЕ поступают на склад до отдельного подтверждения.</p><label>Товар</label><select id="receiptProduct">'+options+'</select><label>Количество</label><input id="receiptQty" type="number" min="1" step="1" value="1"><label>Закупочная стоимость за штуку, $</label><input id="receiptCost" type="number" min="0" step="0.01" value="0"><label>Доставка за штуку, $</label><input id="receiptFreight" type="number" min="0" step="0.01" value="0"><label>Розничная цена за штуку, $ (необязательно)</label><input id="receiptRetail" type="number" min="0" step="0.01"><label>Примечание</label><textarea id="receiptNotes" placeholder="Поставщик, номер заказа"></textarea><button id="draftReceipt">Сохранить черновик</button><p class="result" id="formMsg"></p>';
+ $('content').append(area);
+ $('draftReceipt').onclick=async()=>{
+ const qty=Number($('receiptQty').value),cost=Number($('receiptCost').value),freight=Number($('receiptFreight').value),retail=$('receiptRetail').value;
+ if(!Number.isInteger(qty)||qty<1||!Number.isFinite(cost)||cost<0||!Number.isFinite(freight)||freight<0||!$('receiptProduct').value){$('formMsg').textContent='Проверь количество и стоимость';return}
+ if(retail!==''&&(!Number.isFinite(Number(retail))||Number(retail)<0)){$('formMsg').textContent='Неверная розничная цена';return}
+ const line={product_id:$('receiptProduct').value,quantity:qty,purchase_unit_cost:cost,inbound_freight_unit_cost:freight,retail_unit_price:retail===''?null:Number(retail)};
+ const b=$('draftReceipt');b.disabled=true;
+ try{await rpc('inventory_owner_create_draft',{p_kind:'receipt',p_lines:[line],p_date:new Date().toLocaleDateString('en-CA'),p_notes:$('receiptNotes').value.trim()||null,p_request_key:crypto.randomUUID()});await load();render('receipts');$('status').textContent='Черновик поступления сохранён. Остатки не изменились.'}
+ catch(e){$('formMsg').textContent=e.message;b.disabled=false}
+ };
+ }else{
+ area.innerHTML='<p class="hint">Продажи и списания включим после проверки поступлений и расчёта себестоимости. Реальные операции пока не проводим.</p>';
+ $('content').append(area);
+ }
+};
+function escapeText(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 </script></body></html>
