@@ -152,7 +152,7 @@ render=function(tab){
   for(const p of snapshot.products||[]){
    const row=document.createElement('div');row.className='row';
    addElement(row,'span',p.name);
-   addElement(row,'b',(balanceById(p.id)?.on_hand||0)+' шт.');
+   addElement(row,'b',(balanceById(p.id)?.on_hand||0)+' шт. · закупка '+usd(balanceById(p.id)?.avg_purchase_cost||0)+'/шт.');
    el.append(row);
   }
   return;
