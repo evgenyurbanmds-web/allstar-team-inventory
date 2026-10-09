@@ -134,16 +134,16 @@ render=function(tab){
   const old=$('content').querySelector('.tools');if(old)old.remove();
   const area=document.createElement('section');area.className='tools';
   const choices=(snapshot.products||[]).map(p=>'<option value="'+p.id+'">'+escapeText(p.name)+'</option>').join('');
-  area.innerHTML='<h2>Новая продажа — черновик</h2><p class="hint">Создание черновика не меняет остатки. Проведение требует отдельного подтверждения.</p><label>Товар</label><select id="saleProduct">'+choices+'</select><p class="hint" id="available"></p><label>Количество</label><input id="saleQty" type="number" min="1" step="1" value="1"><label>Сумма, полученная за все единицы ($)</label><input id="saleProceeds" type="number" min="0" step="0.01" placeholder="Общая сумма после комиссий"><label>Примечание</label><textarea id="saleNotes" placeholder="Площадка, заказ, покупатель"></textarea><button id="draftSale">Сохранить черновик продажи</button><p class="result" id="saleMsg"></p>';
+  area.innerHTML='<h2>Новая продажа — черновик</h2><p class="hint">Создание черновика не меняет остатки. Проведение требует отдельного подтверждения.</p><label>Товар</label><select id="saleProduct">'+choices+'</select><p class="hint" id="available"></p><label>Количество</label><input id="saleQty" type="number" min="1" step="1" value="1"><label>Цена продажи за 1 шт. ($)</label><input id="saleProceeds" type="number" min="0" step="0.01" placeholder="Цена за одну штуку после комиссий"><label>Примечание</label><textarea id="saleNotes" placeholder="Площадка, заказ, покупатель"></textarea><button id="draftSale">Сохранить черновик продажи</button><p class="result" id="saleMsg"></p>';
   $('content').append(area);
-  const update=()=>{$('available').textContent=salePriceInfo($('saleProduct').value,$('saleQty').value,$('saleProceeds').value)};
+  const update=()=>{$('available').textContent=salePriceInfo($('saleProduct').value,$('saleQty').value,$('saleProceeds').value===''?'':String(Number($('saleProceeds').value)*Number($('saleQty').value)))};
   $('saleProduct').onchange=update;$('saleQty').oninput=update;$('saleProceeds').oninput=update;update();
   $('draftSale').onclick=async()=>{
    const qty=Number($('saleQty').value),amount=Number($('saleProceeds').value),id=$('saleProduct').value;
    if(!id||!Number.isInteger(qty)||qty<1||$('saleProceeds').value===''||!Number.isFinite(amount)||amount<0){$('saleMsg').textContent='Проверь товар, количество и сумму';return}
    if(qty>Number(balanceById(id)?.on_hand||0)){$('saleMsg').textContent='Недостаточно товара на складе';return}
    const btn=$('draftSale');btn.disabled=true;
-   try{await rpc('inventory_owner_create_draft',{p_kind:'sale',p_lines:[{product_id:id,quantity:qty,net_proceeds:amount,operation_type:'sale'}],p_date:new Date().toLocaleDateString('en-CA'),p_notes:$('saleNotes').value.trim()||null,p_request_key:crypto.randomUUID()});await refreshTab('sales');$('status').textContent='Черновик продажи сохранён. Остатки не изменились.'}
+   try{await rpc('inventory_owner_create_draft',{p_kind:'sale',p_lines:[{product_id:id,quantity:qty,net_proceeds:Number((amount*qty).toFixed(2)),operation_type:'sale'}],p_date:new Date().toLocaleDateString('en-CA'),p_notes:$('saleNotes').value.trim()||null,p_request_key:crypto.randomUUID()});await refreshTab('sales');$('status').textContent='Черновик продажи сохранён. Остатки не изменились.'}
    catch(e){$('saleMsg').textContent=e.message;btn.disabled=false}
   };
   addDocs(tab);
@@ -171,14 +171,14 @@ render=function(tab){
  addElement(el,'h2','Оформление продажи');
  const form=document.createElement('section');form.className='tools';
  const opts=(snapshot.products||[]).map(p=>'<option value="'+p.id+'">'+escapeText(p.name)+'</option>').join('');
- form.innerHTML='<label>Товар</label><select id="managerProduct">'+opts+'</select><p class="hint" id="managerStock"></p><label>Количество</label><input id="managerQty" type="number" min="1" step="1" value="1"><label>Общая сумма продажи, $</label><input id="managerAmount" type="number" min="0" step="0.01" placeholder="После комиссий"><label>Примечание</label><textarea id="managerNotes"></textarea><button id="managerSave">Создать черновик</button><p id="managerMsg" class="result"></p>';
+ form.innerHTML='<label>Товар</label><select id="managerProduct">'+opts+'</select><p class="hint" id="managerStock"></p><label>Количество</label><input id="managerQty" type="number" min="1" step="1" value="1"><label>Цена продажи за 1 шт., $</label><input id="managerAmount" type="number" min="0" step="0.01" placeholder="За одну штуку после комиссий"><label>Примечание</label><textarea id="managerNotes"></textarea><button id="managerSave">Создать черновик</button><p id="managerMsg" class="result"></p>';
  el.append(form);
- const stock=()=>{$('managerStock').textContent=salePriceInfo($('managerProduct').value,$('managerQty').value,$('managerAmount').value)};$('managerProduct').onchange=stock;$('managerQty').oninput=stock;$('managerAmount').oninput=stock;stock();
+ const stock=()=>{$('managerStock').textContent=salePriceInfo($('managerProduct').value,$('managerQty').value,$('managerAmount').value===''?'':String(Number($('managerAmount').value)*Number($('managerQty').value)))};$('managerProduct').onchange=stock;$('managerQty').oninput=stock;$('managerAmount').oninput=stock;stock();
  $('managerSave').onclick=async()=>{
   const id=$('managerProduct').value,qty=Number($('managerQty').value),amount=Number($('managerAmount').value);
   if(!id||!Number.isInteger(qty)||qty<1||$('managerAmount').value===''||!Number.isFinite(amount)||amount<0||qty>Number(balanceById(id)?.on_hand||0)){$('managerMsg').textContent='Проверь количество, остаток и сумму';return}
   const b=$('managerSave');b.disabled=true;
-  try{await rpc('inventory_manager_create_sale',{p_product_id:id,p_quantity:qty,p_net_proceeds:amount,p_notes:$('managerNotes').value.trim()||null,p_request_key:crypto.randomUUID()});snapshot=await rpc('inventory_manager_snapshot');render('sales');$('status').textContent='Черновик продажи сохранён';}
+  try{await rpc('inventory_manager_create_sale',{p_product_id:id,p_quantity:qty,p_net_proceeds:Number((amount*qty).toFixed(2)),p_notes:$('managerNotes').value.trim()||null,p_request_key:crypto.randomUUID()});snapshot=await rpc('inventory_manager_snapshot');render('sales');$('status').textContent='Черновик продажи сохранён';}
   catch(e){$('managerMsg').textContent=e.message;b.disabled=false}
  };
  addElement(el,'h2','Мои продажи');
