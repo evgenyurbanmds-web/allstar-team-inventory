@@ -15,7 +15,7 @@ function message(s,err=false){$('authmsg').textContent=s;$('authmsg').className=
 async function auth(path,body){const r=await fetch(URL+'/auth/v1/'+path,{method:'POST',headers:{'apikey':KEY,'Content-Type':'application/json'},body:JSON.stringify(body)});const j=await r.json();if(!r.ok)throw Error(j.msg||j.error_description||j.message||'Ошибка авторизации');return j}
 async function rpc(name,args={}){const r=await fetch(URL+'/rest/v1/rpc/'+name,{method:'POST',headers:{'apikey':KEY,'Authorization':'Bearer '+session.access_token,'Content-Type':'application/json'},body:JSON.stringify(args)});const j=await r.json();if(!r.ok)throw Error(j.message||'Ошибка доступа');return j}
 async function enter(s){session=s;sessionStorage.setItem('allstar_session',JSON.stringify(s));$('login').classList.add('hidden');$('app').classList.remove('hidden');$('identity').textContent=s.user?.email||'Владелец';await load()}
-async function load(){try{snapshot=await rpc('inventory_owner_snapshot');$('status').textContent='Подключено к защищённой базе All Star Team';$('status').className='ok';render('products')}catch(e){$('status').textContent='Доступ к данным пока не настроен: '+e.message;$('status').className='error';$('content').textContent='После подтверждения учётной записи администратор предоставит доступ владельца.'}}
+async function load(){try{snapshot=await rpc('inventory_owner_snapshot');$('status').textContent='Подключено к защищённой базе All Star Team · Владелец';$('status').className='ok';render('products')}catch(e){try{snapshot=await rpc('inventory_manager_snapshot');$('status').textContent='All Star Team · Менеджер (продажи и остатки)';$('status').className='ok';render('products')}catch(err){snapshot=null;$('status').textContent='Доступ пока не настроен: '+err.message;$('status').className='error';$('content').textContent='Обратитесь к владельцу для назначения роли.'}}}
 function render(tab){for(const [id,t] of [['tabProducts','products'],['tabReceipts','receipts'],['tabSales','sales']])$(id).classList.toggle('active',t===tab);const a=snapshot?.[tab]||[];const el=$('content');el.replaceChildren();const title=document.createElement('h2');title.textContent=tab==='products'?'Каталог товаров':tab==='receipts'?'Поступления':'Продажи';el.append(title);if(!a.length){const p=document.createElement('p');p.className='muted';p.textContent='Записей пока нет';el.append(p)}for(const item of a){const row=document.createElement('div');row.className='row';const label=document.createElement('span');label.textContent=item.name||item.receipt_date||item.sale_date||item.id;const detail=document.createElement('span');detail.className='muted';detail.textContent=item.status||'';row.append(label,detail);el.append(row)}}
 $('signin').onclick=async()=>{try{const s=await auth('token?grant_type=password',{email:$('email').value,password:$('password').value});await enter(s)}catch(e){message(e.message,true)}};
 $('signup').onclick=async()=>{try{const s=await auth('signup',{email:$('email').value,password:$('password').value});if(s.access_token)await enter(s);else message('Регистрация отправлена. Проверьте email для подтверждения. Доступ к складу включается отдельно.')}catch(e){message(e.message,true)}};
@@ -136,6 +136,58 @@ render=function(tab){
    catch(e){$('saleMsg').textContent=e.message;btn.disabled=false}
   };
   addDocs(tab);
+ }
+};
+</script>
+<script>
+const renderFull=render;
+render=function(tab){
+ if(snapshot?.role!=='manager'){renderFull(tab);return}
+ $('tabReceipts').classList.add('hidden');
+ $('tabProducts').classList.toggle('active',tab==='products');
+ $('tabSales').classList.toggle('active',tab==='sales');
+ const el=$('content');el.replaceChildren();
+ if(tab==='products'){
+  addElement(el,'h2','Товары в наличии');
+  for(const p of snapshot.products||[]){
+   const row=document.createElement('div');row.className='row';
+   addElement(row,'span',p.name);
+   addElement(row,'b',(balanceById(p.id)?.on_hand||0)+' шт.');
+   el.append(row);
+  }
+  return;
+ }
+ addElement(el,'h2','Оформление продажи');
+ const form=document.createElement('section');form.className='tools';
+ const opts=(snapshot.products||[]).map(p=>'<option value="'+p.id+'">'+escapeText(p.name)+'</option>').join('');
+ form.innerHTML='<label>Товар</label><select id="managerProduct">'+opts+'</select><p class="hint" id="managerStock"></p><label>Количество</label><input id="managerQty" type="number" min="1" step="1" value="1"><label>Общая сумма продажи, $</label><input id="managerAmount" type="number" min="0" step="0.01" placeholder="После комиссий"><label>Примечание</label><textarea id="managerNotes"></textarea><button id="managerSave">Создать черновик</button><p id="managerMsg" class="result"></p>';
+ el.append(form);
+ const stock=()=>{$('managerStock').textContent='На складе: '+(balanceById($('managerProduct').value)?.on_hand||0)+' шт.'};$('managerProduct').onchange=stock;stock();
+ $('managerSave').onclick=async()=>{
+  const id=$('managerProduct').value,qty=Number($('managerQty').value),amount=Number($('managerAmount').value);
+  if(!id||!Number.isInteger(qty)||qty<1||$('managerAmount').value===''||!Number.isFinite(amount)||amount<0||qty>Number(balanceById(id)?.on_hand||0)){$('managerMsg').textContent='Проверь количество, остаток и сумму';return}
+  const b=$('managerSave');b.disabled=true;
+  try{await rpc('inventory_manager_create_sale',{p_product_id:id,p_quantity:qty,p_net_proceeds:amount,p_notes:$('managerNotes').value.trim()||null,p_request_key:crypto.randomUUID()});snapshot=await rpc('inventory_manager_snapshot');render('sales');$('status').textContent='Черновик продажи сохранён';}
+  catch(e){$('managerMsg').textContent=e.message;b.disabled=false}
+ };
+ addElement(el,'h2','Мои продажи');
+ for(const s of snapshot.sales||[]){
+  const row=document.createElement('div');row.className='docline';
+  const left=document.createElement('div');
+  const lines=(snapshot.sale_lines||[]).filter(l=>l.sale_id===s.id);
+  const description=lines.map(l=>(productById(l.product_id)?.name||'Товар')+' × '+l.quantity+' — '+usd(l.net_proceeds)).join('; ');
+  addElement(left,'b',s.sale_date+' · '+(s.status==='draft'?'Черновик':s.status==='posted'?'Проведена':'Отменена'));
+  addElement(left,'div',description,'muted');row.append(left);
+  if(s.status==='draft'){
+   const b=addElement(row,'button','Провести продажу');
+   b.onclick=async()=>{
+    if(!confirm('Подтвердить реальную продажу?\n'+description+'\nОстатки на складе уменьшатся.'))return;
+    b.disabled=true;
+    try{await rpc('inventory_manager_post_sale',{p_sale_id:s.id,p_request_key:crypto.randomUUID()});snapshot=await rpc('inventory_manager_snapshot');render('sales');$('status').textContent='Продажа проведена'}
+    catch(e){alert('Ошибка: '+e.message);b.disabled=false}
+   };
+  }
+  el.append(row);
  }
 };
 </script></body></html>
