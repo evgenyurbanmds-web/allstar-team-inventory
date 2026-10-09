@@ -43,12 +43,12 @@ render=function(tab){
  };
  }else if(tab==='receipts'){
  const options=(snapshot?.products||[]).map(p=>'<option value="'+p.id+'">'+escapeText(p.name)+'</option>').join('');
- area.innerHTML='<h2>Черновик поступления</h2><p class="hint">Создаётся только черновик. Товары НЕ поступают на склад до отдельного подтверждения.</p><label>Товар</label><select id="receiptProduct">'+options+'</select><label>Количество</label><input id="receiptQty" type="number" min="1" step="1" value="1"><label>Закупочная стоимость за штуку, $</label><input id="receiptCost" type="number" min="0" step="0.01" value="0"><label>Доставка за штуку, $</label><input id="receiptFreight" type="number" min="0" step="0.01" value="0"><label>Розничная цена за штуку, $ (необязательно)</label><input id="receiptRetail" type="number" min="0" step="0.01"><label>Примечание</label><textarea id="receiptNotes" placeholder="Поставщик, номер заказа"></textarea><button id="draftReceipt">Сохранить черновик</button><p class="result" id="formMsg"></p>';
+ area.innerHTML='<h2>Черновик поступления</h2><p class="hint">Создаётся только черновик. Товары НЕ поступают на склад до отдельного подтверждения.</p><label>Товар</label><select id="receiptProduct">'+options+'</select><label>Количество</label><input id="receiptQty" type="number" min="1" step="1" value="1"><label>Закупочная стоимость за штуку, $</label><input id="receiptCost" type="number" min="0" step="0.01" value="0"><label>Доставка за штуку, $</label><input id="receiptFreight" type="number" min="0" step="0.01" value="0"><label>Original Retail за штуку, $ (необязательно)</label><input id="receiptRetail" type="number" min="0" step="0.01"><label>Примечание</label><textarea id="receiptNotes" placeholder="Поставщик, номер заказа"></textarea><button id="draftReceipt">Сохранить черновик</button><p class="result" id="formMsg"></p>';
  $('content').append(area);
  $('draftReceipt').onclick=async()=>{
  const qty=Number($('receiptQty').value),cost=Number($('receiptCost').value),freight=Number($('receiptFreight').value),retail=$('receiptRetail').value;
  if(!Number.isInteger(qty)||qty<1||!Number.isFinite(cost)||cost<0||!Number.isFinite(freight)||freight<0||!$('receiptProduct').value){$('formMsg').textContent='Проверь количество и стоимость';return}
- if(retail!==''&&(!Number.isFinite(Number(retail))||Number(retail)<0)){$('formMsg').textContent='Неверная розничная цена';return}
+ if(retail!==''&&(!Number.isFinite(Number(retail))||Number(retail)<0)){$('formMsg').textContent='Неверная Original Retail';return}
  const line={product_id:$('receiptProduct').value,quantity:qty,purchase_unit_cost:cost,inbound_freight_unit_cost:freight,retail_unit_price:retail===''?null:Number(retail)};
  const b=$('draftReceipt');b.disabled=true;
  try{await rpc('inventory_owner_create_draft',{p_kind:'receipt',p_lines:[line],p_date:new Date().toLocaleDateString('en-CA'),p_notes:$('receiptNotes').value.trim()||null,p_request_key:crypto.randomUUID()});await load();render('receipts');$('status').textContent='Черновик поступления сохранён. Остатки не изменились.'}
@@ -309,7 +309,7 @@ render=function(tab){
  const dateLabel=addElement(host,'label','Дата фактического получения');const date=document.createElement('input');date.type='date';const today=new Date();date.value=[today.getFullYear(),String(today.getMonth()+1).padStart(2,'0'),String(today.getDate()).padStart(2,'0')].join('-');dateLabel.append(date);
  const notesLabel=addElement(host,'label','Номер партии / поставщик / примечания');const notes=document.createElement('textarea');notes.placeholder='Например, B-Stock, номер лота, стоимость доставки';notesLabel.append(notes);
  const wrap=document.createElement('div');wrap.className='batch-wrap';const table=document.createElement('table');table.className='batch-table';
- const head=document.createElement('thead');const tr=document.createElement('tr');for(const h of ['Модель','Шт.','Закупка / шт.','Доставка / шт.','Retail / шт.',''])addElement(tr,'th',h);head.append(tr);table.append(head);
+ const head=document.createElement('thead');const tr=document.createElement('tr');for(const h of ['Модель','Шт.','Закупка / шт.','Доставка / шт.','Original Retail / шт.',''])addElement(tr,'th',h);head.append(tr);table.append(head);
  const body=document.createElement('tbody');table.append(body);wrap.append(table);host.append(wrap);
  const controls=document.createElement('div');controls.className='batch-footer';
  const add=document.createElement('button');add.className='secondary';add.textContent='+ Добавить модель';
